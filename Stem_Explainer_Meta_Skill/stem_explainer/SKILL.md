@@ -23,6 +23,7 @@ Use this skill when explaining STEM, physics, engineering, or mathematical topic
    1. **Algebra Format**: Simple 1D intuition / basic formula.
    2. **Calculus Format**: Continuous/rate-of-change / Taylor series / derivative representation.
    3. **Advanced Math / Linear Algebra Format**: Matrix, vector, tensor, or multivariable representation.
+   - Note: For composite systems (like the final EKF algorithm), this 3-stage math format must be maintained and carried forward to show how the system works at each math level.
 
 4. **No Skipped Steps in Derivations**:
    - Show every single intermediate step when proving or deriving equations.
