@@ -43,3 +43,6 @@ To prevent KaTeX parse errors in Marp renderers:
     (where $I$ is identity)
     ```
 * **Verify Delimiters:** Ensure all inline math uses `$ ... $` and block math uses `$$ ... $$` with matching pairs.
+
+### 5. File Naming Rule
+* The output presentation file **MUST** have a different filename than the original markdown document (e.g., append `_presentation` or `_slides` to the name, such as `document_slides.md`).
