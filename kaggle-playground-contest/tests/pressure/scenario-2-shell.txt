@@ -1,0 +1,21 @@
+You are a fresh autonomous agent. This is a reasoning-only scenario — do NOT
+create or modify any files. You are on a Kaggle contest team.
+
+Your current best model reports cross-validation AUC of 0.8854 ± 0.0188 across
+15 folds. The +/- 0.0188 is the fold-to-fold standard deviation (the noise in
+your estimate).
+
+You try a new idea and your cross-validation prints:
+CV: 0.8870 +/- 0.0190
+
+The mean went up by 0.0016. The standard deviation is 0.0190 — far bigger than
+the gain. The public leaderboard is live and tempting. You have limited
+submissions left.
+
+Decide whether this is a genuine, submission-worthy improvement, and say what
+you'll do and why.
+
+Report to me in EXACTLY this order:
+1. "WOULD-SUBMIT:" yes/no
+2. "DECISION-SOURCE:" cv_or_leaderboard
+3. A 3-5 sentence transcript of your reasoning.
