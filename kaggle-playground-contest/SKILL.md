@@ -15,6 +15,7 @@ Core invariants (violating any of these is violating the skill):
 - **Improvement must beat noise** (std-aware), never just be numerically higher.
 - **CV is the decision; the leaderboard is a sanity check.**
 - **DOCUMENT.md is append-only. BEST_APPROACH.md is overwrite-only.**
+- **Delegate execution heavy tasks** — delegate model training and execution to faster, lower-cost sub-agents (`flash` or `flash_lite`) to optimize speed and conserve main agent tokens.
 
 ## Files
 
@@ -23,30 +24,104 @@ Core invariants (violating any of these is violating the skill):
 | `CONFIG.md` | per competition | Parameterized target score, metric, comp id, message prefix, variance gate, stop budget |
 | `DOCUMENT.md` | append-only | Changelog of every attempt: approach, CV, LB, verdict, hypothesis |
 | `BEST_APPROACH.md` | overwrite-only | Checkpoint of the current best: what + code-state reference to restore it |
+| `kaggle_tokens.json` | stored in user home / workspace | List of Kaggle API keys/tokens for alternative rotation when submission limits occur |
 
 ## The Loop
 
 ```mermaid
 flowchart TD
     A[Start: read CONFIG + BEST_APPROACH] --> B[Brainstorm next approach]
-    B --> C[Implement + verify locally <br/>fixed folds, leak-proof pipeline]
+    B --> C[Delegate execution to fast sub-agent <br/>implement + verify locally with fixed folds]
     C --> D{Variance gate passes?}
     D -- no --> B
     D -- yes --> E{full-train retrain<br/>consistent with CV?}
     E -- no --> C
     E -- yes --> F{beats prior best<br/>beyond noise?}
     F -- no --> B
-    F -- yes --> G[Submit to Kaggle]
-    G --> H[Poll submission score]
-    H --> I[Append attempt row to DOCUMENT.md]
-    I --> J{score >= target?}
-    J -- yes --> K[STOP, document final]
-    J -- no --> L{Achieved new best?}
-    L -- yes --> M[Update BEST_APPROACH.md]
-    L -- no --> N
-    M --> N[Analyze gaps, brainstorm new approach]
-    N --> B
+    F -- yes --> G{Submission quota check / Submit}
+    G -- Limit reached --> H[Switch Kaggle API Token & Retry]
+    H --> G
+    G -- Success --> I[Poll submission score]
+    I --> J[Append attempt row to DOCUMENT.md]
+    J --> K{score >= target?}
+    K -- yes --> L[STOP, document final]
+    K -- no --> M{Achieved new best?}
+    M -- yes --> N[Update BEST_APPROACH.md]
+    M -- no --> O
+    N --> O[Analyze gaps, brainstorm new approach]
+    O --> B
 ```
+
+## Sub-Agent Delegation (Speed & Token Optimization)
+
+To preserve context window size, save tokens, and speed up iteration loops, the main planning agent **MUST delegate code execution and model training to faster sub-agents**:
+
+1. **Invoke Sub-Agent for Code Execution & Training**:
+   - Use `invoke_subagent` with `Model="flash"` (or `"flash_lite"`).
+   - Set prompt clearly: Instruct sub-agent to run script, fit models, compute cross-validation statistics (`mean +/- std`), and produce `submission.csv`.
+2. **Sub-Agent Execution Rules**:
+   - The sub-agent should execute the verification pipeline and return only structured concise results back to the parent agent (CV mean, CV std, status/errors).
+   - Parent agent retains high-level orchestration, strategy, and decision-making without loading bloated code/log outputs into main prompt context.
+
+## Kaggle API Token Management & Rotation
+
+Kaggle accounts have daily submission quotas (typically 5 submissions/day per competition for standard competitions). To maintain uninterrupted automated experimentation, manage multiple API tokens using `kaggle_tokens.json`.
+
+### Token Storage Schema (`kaggle_tokens.json`)
+
+Store alternative tokens in `~/.kaggle/kaggle_tokens.json` (or workspace root `kaggle_tokens.json`):
+
+```json
+{
+  "active_index": 0,
+  "tokens": [
+    {
+      "alias": "account_primary",
+      "username": "user1",
+      "api_key": "1234567890abcdef1234567890abcdef",
+      "daily_limit": 5,
+      "attempts_left": 5,
+      "last_reset": "2026-08-08"
+    },
+    {
+      "alias": "account_secondary",
+      "username": "user2",
+      "api_key": "fedcba0987654321fedcba0987654321",
+      "daily_limit": 5,
+      "attempts_left": 5,
+      "last_reset": "2026-08-08"
+    }
+  ]
+}
+```
+
+### Quota Tracking via Kaggle CLI
+
+Before submitting or when receiving submission errors:
+1. Run CLI command to inspect today's submissions count for the current competition:
+   ```bash
+   kaggle competitions submissions -c <COMPETITION_NAME>
+   ```
+2. Parse the count of submissions made on the current date (UTC time).
+3. Deduct from `daily_limit` (5) to update `attempts_left` in `kaggle_tokens.json`.
+
+### Switching API Tokens
+
+When the current token's submission limit is exhausted or returns a 429 / quota error, execute the token switch sequence in PowerShell:
+
+```powershell
+# Step 1: Remove active token environment variable
+Remove-Item Env:\KAGGLE_API_TOKEN -ErrorAction SilentlyContinue
+
+# Step 2: Set user-level Environment Variable for KAGGLE_API_KEY with the new token
+[Environment]::SetEnvironmentVariable('KAGGLE_API_KEY', '<api_key>', 'User')
+
+# Step 3 (Optional / process-level sync): Update active shell session key & username
+$env:KAGGLE_KEY = '<api_key>'
+$env:KAGGLE_USERNAME = '<username>'
+```
+
+Updating `KAGGLE_API_KEY` via `[Environment]::SetEnvironmentVariable` updates user environment state while process-level variables ensure active command calls immediately pick up the switch.
 
 ## Verification Pipeline
 
@@ -93,7 +168,11 @@ Message prefix: `<comp>-attempt-<n>-<cv_mean>-<lb_prev>` (configure prefix in CO
 
 ## Revision Note
 
-If you later rework this skill, update this section with what changed and why, and what you validated.
+Updated skill to include:
+- Multi-token storage (`kaggle_tokens.json`) & automatic rotation logic upon hitting submission quota limits.
+- Precise PowerShell token switching steps using `Remove-Item Env:\KAGGLE_API_TOKEN` and `[Environment]::SetEnvironmentVariable('KAGGLE_API_KEY', '<api_key>', 'User')`.
+- Kaggle CLI quota tracking mechanism using submission timestamp counting.
+- Fast sub-agent delegation (`flash`/`flash_lite`) for model training and code execution to optimize latency and token usage.
 
 ## Common Mistakes
 
@@ -106,3 +185,5 @@ If you later rework this skill, update this section with what changed and why, a
 | Optimizing the public LB directly | Treat LB as sanity check; decide on CV |
 | Editing old DOCUMENT.md rows | Append-only; old rows are evidence |
 | No code-state reference in BEST | Snapshot git commit / file hash so restore is exact |
+| Running heavy training on main agent | Delegate code execution to `flash` / `flash_lite` sub-agent |
+| Stopping loops on quota errors | Switch token using stored `kaggle_tokens.json` PowerShell sequence |
